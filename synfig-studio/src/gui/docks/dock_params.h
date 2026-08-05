@@ -31,7 +31,16 @@
 /* === H E A D E R S ======================================================= */
 
 #include <gtkmm/actiongroup.h>
+#include <gtkmm/box.h>
+#include <gtkmm/button.h>
+#include <gtkmm/checkbutton.h>
+#include <gtkmm/comboboxtext.h>
+#include <gtkmm/entry.h>
 #include <gui/docks/dock_canvasspecific.h>
+
+#include <synfig/type.h>
+
+#include <vector>
 
 /* === M A C R O S ========================================================= */
 
@@ -41,12 +50,28 @@
 
 namespace studio {
 
+class LayerParamTreeStore;
+
 class Dock_Params : public Dock_CanvasSpecific
 {
 	Glib::RefPtr<Gtk::ActionGroup> action_group;
 	Glib::RefPtr<Gtk::Adjustment> vadjustment;
 	sigc::connection refresh_selected_param_connection;
 	sigc::connection canvas_changed_connection;
+
+	//! Filter bar shown above the parameters tree
+	Gtk::Box filter_box_;
+	Gtk::Entry filter_name_entry_;
+	Gtk::Entry filter_value_entry_;
+	Gtk::ComboBoxText filter_type_combo_;
+	Gtk::CheckButton filter_animated_check_;
+	Gtk::Button filter_clear_button_;
+
+	//! Value types listed in filter_type_combo_, index-aligned with combo rows (row 0 = nullptr = any type)
+	std::vector<const synfig::Type*> filter_types_;
+
+	//! Connection to the current store's signal_changed(), used to refresh the type list
+	sigc::connection filter_store_connection_;
 
 protected:
 	virtual void init_canvas_view_vfunc(etl::loose_handle<CanvasView> canvas_view);
@@ -56,10 +81,17 @@ protected:
 
 	void refresh_selected_param();
 
+private:
+	void create_filter_bar();
+	void on_param_filter_changed();
+	void on_filter_clear_clicked();
+	void refresh_filter_type_combo();
+	LayerParamTreeStore* get_param_tree_store(etl::loose_handle<CanvasView> canvas_view) const;
+
 public:
 	Dock_Params();
 	~Dock_Params();
-}; // END of Dock_Keyframes
+}; // END of Dock_Params
 
 }; // END of namespace studio
 

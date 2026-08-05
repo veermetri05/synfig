@@ -32,8 +32,13 @@
 /* === H E A D E R S ======================================================= */
 
 #include <gui/trees/canvastreestore.h>
+#include <synfig/type.h>
 #include <synfig/value.h>
 #include <synfig/valuenode.h>
+
+#include <string>
+#include <utility>
+#include <vector>
 
 /* === M A C R O S ========================================================= */
 
@@ -98,6 +103,15 @@ private:
 	std::list<sigc::connection> changed_connection_list;
 
 	sigc::signal<void> signal_changed_;
+
+	//! Parameter filter: substring to match against the parameter name (lowercase)
+	Glib::ustring filter_name_;
+	//! Parameter filter: substring to match against the displayed parameter value (lowercase)
+	Glib::ustring filter_value_;
+	//! Parameter filter: only show parameters of this type (nullptr = any type)
+	const synfig::Type* filter_type_;
+	//! Parameter filter: only show animated parameters
+	bool filter_animated_only_;
 
 	/*
  -- ** -- P R I V A T E   M E T H O D S ---------------------------------------
@@ -167,12 +181,46 @@ public:
 	void changed() { signal_changed_(); }
 
 	/*
+ -- ** -- P A R A M E T E R   F I L T E R -------------------------------------
+	*/
+
+public:
+
+	//! Set the parameter filter. Empty name/value and null type mean "any".
+	//! \param name substring to match against the parameter name (case-insensitive)
+	//! \param value substring to match against the displayed parameter value (case-insensitive)
+	//! \param type only show parameters of this type, or nullptr for any type
+	//! \param animated_only only show parameters that are animated
+	void set_param_filter(const synfig::String& name, const synfig::String& value, const synfig::Type* type, bool animated_only);
+
+	//! Reset the filter to show every parameter
+	void clear_param_filter();
+
+	//! True if any filter criterion is active
+	bool is_filter_active() const;
+
+	//! Collect the distinct parameter value types currently present in the tree
+	//! \param types out: pairs of (local type name, type), sorted by name
+	void get_distinct_types(std::vector<std::pair<synfig::String, const synfig::Type*>>& types);
+
+	/*
  -- ** -- S T A T I C   P U B L I C   M E T H O D S ---------------------------
 	*/
 
 public:
 
 	static Glib::RefPtr<LayerParamTreeStore> create(etl::loose_handle<synfigapp::CanvasInterface> canvas_interface_, LayerTree*layer_tree);
+
+private:
+
+	//! Whether the row (identified by its ValueDesc) matches the active filter
+	bool row_matches_filter(const Gtk::TreeModel::iterator& iter) const;
+
+	//! Remove all rows that don't match the active filter (no-op when filter is inactive)
+	void prune_rows();
+
+	//! Recursive helper for prune_rows()
+	void prune_children(Gtk::TreeModel::Children children);
 }; // END of class LayerParamTreeStore
 
 }; // END of namespace studio

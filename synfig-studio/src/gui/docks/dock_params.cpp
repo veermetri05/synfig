@@ -36,6 +36,8 @@
 
 #include <cassert>
 
+#include <gtkmm/icontheme.h>
+
 #include <gui/canvasview.h>
 #include <gui/localization.h>
 #include <gui/trees/layerparamtreestore.h>
@@ -59,9 +61,11 @@ using namespace studio;
 Dock_Params::Dock_Params():
 	Dock_CanvasSpecific("params", _("Parameters"), "parameters_icon"),
 	action_group( Gtk::ActionGroup::create("action_group_dock_params") ),
-	vadjustment( Gtk::Adjustment::create(0, 0, 1, 1, 1) )
+	vadjustment( Gtk::Adjustment::create(0, 0, 1, 1, 1) ),
+	filter_box_( Gtk::ORIENTATION_HORIZONTAL, 0 )
 {
 	set_name("parameters_panel");
+	create_filter_bar();
 }
 
 Dock_Params::~Dock_Params()
@@ -99,6 +103,10 @@ Dock_Params::changed_canvas_view_vfunc(CanvasView::LooseHandle canvas_view)
 {
 	reset_container();
 	refresh_selected_param_connection.disconnect();
+	filter_store_connection_.disconnect();
+
+	if (Gtk::Container* filter_parent = dynamic_cast<Gtk::Container*>(filter_box_.get_parent()))
+		filter_parent->remove(filter_box_);
 	
 	if(canvas_view)
 	{
@@ -117,9 +125,131 @@ Dock_Params::changed_canvas_view_vfunc(CanvasView::LooseHandle canvas_view)
 
 		tree_view->show();
 
-		add(*tree_view);
+		// Filter bar pinned above the scrolled parameters tree
+		Gtk::ScrolledWindow* scrolled = get_container();
+		if (Gtk::Container* parent = dynamic_cast<Gtk::Container*>(scrolled->get_parent()))
+			parent->remove(*scrolled);
+		attach(*scrolled, 0, 1, 1, 1);
+		scrolled->add(*tree_view);
+
+		if (Gtk::Container* filter_parent = dynamic_cast<Gtk::Container*>(filter_box_.get_parent()))
+			filter_parent->remove(filter_box_);
+		attach(filter_box_, 0, 0, 1, 1);
+		filter_box_.show();
 		get_container()->set_vadjustment(vadjustment);
+
+		// Apply the persisted filter to this canvas view's store and keep the type list in sync
+		if (LayerParamTreeStore* store = get_param_tree_store(canvas_view)) {
+			filter_store_connection_ = store->signal_changed().connect(
+				sigc::mem_fun(*this, &Dock_Params::refresh_filter_type_combo));
+			refresh_filter_type_combo();
+			on_param_filter_changed();
+		}
 	}
+}
+
+void
+Dock_Params::create_filter_bar()
+{
+	filter_name_entry_.set_placeholder_text(_("Filter by name"));
+	filter_name_entry_.signal_changed().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
+
+	filter_value_entry_.set_placeholder_text(_("Filter by value"));
+	filter_value_entry_.signal_changed().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
+
+	filter_type_combo_.append(_("All types"));
+	filter_types_.push_back(nullptr);
+	filter_type_combo_.set_active(0);
+	filter_type_combo_.signal_changed().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
+
+	filter_animated_check_.set_label(_("Animated"));
+	filter_animated_check_.signal_toggled().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
+
+	filter_clear_button_.set_image_from_icon_name("edit-clear", Gtk::IconSize::from_name("synfig-small_icon"));
+	filter_clear_button_.set_tooltip_text(_("Clear filter"));
+	filter_clear_button_.signal_clicked().connect(sigc::mem_fun(*this, &Dock_Params::on_filter_clear_clicked));
+
+	filter_box_.set_border_width(2);
+	filter_box_.pack_start(filter_name_entry_, true, true, 2);
+	filter_box_.pack_start(filter_value_entry_, true, true, 2);
+	filter_box_.pack_start(filter_type_combo_, false, false, 2);
+	filter_box_.pack_start(filter_animated_check_, false, false, 2);
+	filter_box_.pack_start(filter_clear_button_, false, false, 2);
+	filter_box_.show_all();
+}
+
+void
+Dock_Params::on_param_filter_changed()
+{
+	CanvasView::LooseHandle canvas_view(get_canvas_view());
+	LayerParamTreeStore* store = get_param_tree_store(canvas_view);
+	if (!store)
+		return;
+
+	const synfig::Type* type(nullptr);
+	const int active = filter_type_combo_.get_active_row_number();
+	if (active > 0 && active < (int)filter_types_.size())
+		type = filter_types_[active];
+
+	store->set_param_filter(
+		filter_name_entry_.get_text(),
+		filter_value_entry_.get_text(),
+		type,
+		filter_animated_check_.get_active());
+}
+
+void
+Dock_Params::on_filter_clear_clicked()
+{
+	filter_name_entry_.set_text("");
+	filter_value_entry_.set_text("");
+	filter_type_combo_.set_active(0);
+	filter_animated_check_.set_active(false);
+	on_param_filter_changed();
+}
+
+void
+Dock_Params::refresh_filter_type_combo()
+{
+	CanvasView::LooseHandle canvas_view(get_canvas_view());
+	LayerParamTreeStore* store = get_param_tree_store(canvas_view);
+	if (!store)
+		return;
+
+	// Remember the currently selected type (by identity, not by row)
+	const synfig::Type* previous_type(nullptr);
+	const int previous_active = filter_type_combo_.get_active_row_number();
+	if (previous_active > 0 && previous_active < (int)filter_types_.size())
+		previous_type = filter_types_[previous_active];
+
+	std::vector<std::pair<synfig::String, const synfig::Type*>> types;
+	store->get_distinct_types(types);
+
+	filter_type_combo_.remove_all();
+	filter_types_.clear();
+	filter_type_combo_.append(_("All types"));
+	filter_types_.push_back(nullptr);
+	for (const auto& type : types) {
+		filter_type_combo_.append(type.first);
+		filter_types_.push_back(type.second);
+	}
+
+	int new_active(0);
+	for (size_t i = 1; i < filter_types_.size(); ++i) {
+		if (filter_types_[i] == previous_type) {
+			new_active = (int)i;
+			break;
+		}
+	}
+	filter_type_combo_.set_active(new_active);
+}
+
+LayerParamTreeStore*
+Dock_Params::get_param_tree_store(CanvasView::LooseHandle canvas_view) const
+{
+	if (!canvas_view)
+		return nullptr;
+	return Glib::RefPtr<LayerParamTreeStore>::cast_dynamic(canvas_view->get_tree_model("params")).get();
 }
 
 void

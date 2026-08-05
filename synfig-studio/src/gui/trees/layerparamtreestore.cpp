@@ -38,12 +38,14 @@
 #include <gui/trees/layerparamtreestore.h>
 
 #include <glibmm/main.h>
+#include <map>
 
 #include <gui/app.h>
 #include <gui/trees/layertree.h>
 #include <gui/localization.h>
 
 #include <synfig/general.h>
+#include <synfig/valuenodes/valuenode_animated.h>
 #include <synfig/valuenodes/valuenode_bone.h>
 
 #include <synfigapp/action_system.h>
@@ -73,7 +75,9 @@ static LayerParamTreeStore::Model& ModelHack()
 LayerParamTreeStore::LayerParamTreeStore(etl::loose_handle<synfigapp::CanvasInterface> canvas_interface_,LayerTree* layer_tree):
 	Gtk::TreeStore			(ModelHack()),
 	CanvasTreeStore			(canvas_interface_),
-	layer_tree				(layer_tree)
+	layer_tree				(layer_tree),
+	filter_type_			(nullptr),
+	filter_animated_only_	(false)
 {
 	queued=0;
 	// Connect all the signals
@@ -444,6 +448,8 @@ LayerParamTreeStore::rebuild()
 			}
 		}
 	}
+
+	prune_rows();
 }
 
 void
@@ -493,6 +499,8 @@ LayerParamTreeStore::refresh()
 			Gtk::TreeRow row=*iter;
 			refresh_row(row);
 		}
+
+	prune_rows();
 }
 
 void
@@ -631,6 +639,127 @@ LayerParamTreeStore::on_layer_param_changed(synfig::Layer::Handle handle, synfig
 	}
 
 	queue_refresh();
+}
+
+void
+LayerParamTreeStore::set_param_filter(const synfig::String& name, const synfig::String& value, const synfig::Type* type, bool animated_only)
+{
+	Glib::ustring new_name(Glib::ustring(name).lowercase());
+	Glib::ustring new_value(Glib::ustring(value).lowercase());
+
+	if(new_name == filter_name_ && new_value == filter_value_ && filter_type_ == type && filter_animated_only_ == animated_only)
+		return;
+
+	filter_name_ = new_name;
+	filter_value_ = new_value;
+	filter_type_ = type;
+	filter_animated_only_ = animated_only;
+
+	queue_rebuild();
+}
+
+void
+LayerParamTreeStore::clear_param_filter()
+{
+	set_param_filter("", "", nullptr, false);
+}
+
+bool
+LayerParamTreeStore::is_filter_active() const
+{
+	return !filter_name_.empty() || !filter_value_.empty() || filter_type_ || filter_animated_only_;
+}
+
+void
+LayerParamTreeStore::get_distinct_types(std::vector<std::pair<synfig::String, const synfig::Type*>>& types)
+{
+	types.clear();
+	std::map<synfig::String, const synfig::Type*> type_map;
+	foreach_iter([this, &type_map](const Gtk::TreeModel::iterator& iter) -> bool {
+		const synfigapp::ValueDesc value_desc((*iter)[model.value_desc]);
+		if(value_desc)
+			type_map[value_desc.get_value_type().description.local_name] = &value_desc.get_value_type();
+		return false;
+	});
+	types.assign(type_map.begin(), type_map.end());
+}
+
+bool
+LayerParamTreeStore::row_matches_filter(const Gtk::TreeModel::iterator& iter) const
+{
+	if(!is_filter_active())
+		return true;
+
+	const synfigapp::ValueDesc value_desc((*iter)[model.value_desc]);
+	if(!value_desc)
+		return true;
+
+	if(filter_type_ && &value_desc.get_value_type() != filter_type_)
+		return false;
+
+	if(filter_animated_only_)
+	{
+		bool animated(false);
+		if(value_desc.is_value_node())
+		{
+			ValueNode::Handle value_node(value_desc.get_value_node());
+			ValueNode_Animated::Handle animated_node(ValueNode_Animated::Handle::cast_dynamic(value_node));
+			animated = animated_node && !animated_node->waypoint_list().empty();
+		}
+		if(!animated)
+			return false;
+	}
+
+	if(!filter_name_.empty())
+	{
+		const Glib::ustring label((*iter)[model.label]);
+		if(label.lowercase().find(filter_name_) == Glib::ustring::npos)
+			return false;
+	}
+
+	if(!filter_value_.empty())
+	{
+		Glib::ustring value_string;
+		try
+		{
+			const synfig::ValueBase value_base = (*iter).get_value(model.value);
+			value_string = value_base.get_string();
+		}
+		catch(const std::exception&)
+		{
+			value_string.clear();
+		}
+		if(value_string.lowercase().find(filter_value_) == Glib::ustring::npos)
+			return false;
+	}
+
+	return true;
+}
+
+void
+LayerParamTreeStore::prune_rows()
+{
+	if(!is_filter_active())
+		return;
+	prune_children(children());
+}
+
+void
+LayerParamTreeStore::prune_children(Gtk::TreeModel::Children children)
+{
+	for(Gtk::TreeModel::Children::iterator iter = children.begin(); iter && iter != children.end(); )
+	{
+		if(row_matches_filter(iter))
+		{
+			if(!iter->children().empty())
+				prune_children(iter->children());
+			++iter;
+		}
+		else
+		{
+			iter = erase(iter);
+		}
+	}
 }
 
 bool
