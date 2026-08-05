@@ -142,6 +142,8 @@ LayerTree::LayerTree()
 	layer_tree_view().set_has_tooltip();
 
 	disable_single_click_for_param_editing = false;
+	param_sort_cycle_ = 0;
+	param_sort_cycle_column_ = -1;
 }
 
 LayerTree::~LayerTree()
@@ -286,6 +288,8 @@ LayerTree::create_param_tree()
 		column->set_resizable();
 		column->set_clickable();
 		column->set_sort_column(param_model.label);
+		column->signal_clicked().connect(
+			sigc::bind(sigc::mem_fun(*this, &LayerTree::on_param_column_clicked), param_model.label.index()));
 
 		param_tree_view().append_column(*column);
 	}
@@ -349,6 +353,8 @@ LayerTree::create_param_tree()
 		column->set_resizable();
 		column->set_clickable();
 		column->set_sort_column(param_model.type);
+		column->signal_clicked().connect(
+			sigc::bind(sigc::mem_fun(*this, &LayerTree::on_param_column_clicked), param_model.type.index()));
 		column->set_sizing(Gtk::TREE_VIEW_COLUMN_FIXED);
 		column->set_fixed_width(75);
 		column->set_min_width(50);
@@ -401,6 +407,52 @@ LayerTree::create_param_tree()
 	param_tree_header_height = 0;
 
 	//column_time_track->set_visible(false);
+}
+
+void
+LayerTree::on_param_column_clicked(int column_id)
+{
+	if (!param_tree_store_)
+		return;
+	int current_column(-1);
+	Gtk::SortType order(Gtk::SORT_ASCENDING);
+	const bool sorted = param_tree_store_->get_sort_column_id(current_column, order);
+
+	// GTK has already handled the click before this signal is emitted:
+	// no sort → ascending on the clicked column, ascending → descending,
+	// descending → ascending (clicking another column sorts it ascending).
+	if (!sorted || current_column != column_id)
+	{
+		// GTK just activated ascending sort on this column
+		param_sort_cycle_ = 1;
+		param_sort_cycle_column_ = column_id;
+		return;
+	}
+
+	if (order == Gtk::SORT_DESCENDING)
+	{
+		param_sort_cycle_ = 2;
+		param_sort_cycle_column_ = column_id;
+	}
+	else if (param_sort_cycle_ == 2 && param_sort_cycle_column_ == column_id)
+	{
+		// Third click on the same column: drop the sort and return to the
+		// vocabulary (insertion) order. Unsorting alone would leave the
+		// rows physically reordered (GtkTreeStore doesn't remember the
+		// insertion order), so rebuild the store synchronously: it appends
+		// rows in vocabulary order and only re-applies a sort that was
+		// active. All of this happens inside the click emission, before
+		// any redraw, so the user only ever sees the vocabulary order.
+		param_sort_cycle_ = 0;
+		param_sort_cycle_column_ = -1;
+		param_tree_store_->set_sort_column(Gtk::TreeSortable::DEFAULT_UNSORTED_COLUMN_ID, Gtk::SORT_ASCENDING);
+		param_tree_store_->rebuild();
+	}
+	else
+	{
+		param_sort_cycle_ = 1;
+		param_sort_cycle_column_ = column_id;
+	}
 }
 
 void

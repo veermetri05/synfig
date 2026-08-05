@@ -124,6 +124,13 @@ private:
 
 	bool disable_single_click_for_param_editing;
 
+	//! Header-click sort cycle for the parameter columns: clicking a header
+	//! cycles ascending → descending → unsorted (vocabulary order).
+	//! \param_sort_cycle_ 0 = unsorted, 1 = ascending, 2 = descending
+	//! \param_sort_cycle_column_ column the cycle state applies to (-1 = none)
+	int param_sort_cycle_;
+	int param_sort_cycle_column_;
+
 	/*
  -- ** -- P R I V A T E   M E T H O D S ---------------------------------------
 	*/
@@ -132,6 +139,9 @@ private:
 
 	void create_layer_tree();
 	void create_param_tree();
+	//! Header-click handler for the parameter columns: after GTK toggled
+	//! the sort, cycle ascending → descending → unsorted (vocabulary order).
+	void on_param_column_clicked(int column_id);
 	//! Update the param_tree_view header height.
 	/*! \return true if param_tree_header_height updated, else false
 	*/
