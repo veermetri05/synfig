@@ -318,6 +318,134 @@ CellRenderer_ValueBase::string_edited_(const Glib::ustring& path, const Glib::us
 		signal_edited_(path, value);
 }
 
+/* static */
+Glib::ustring
+CellRenderer_ValueBase::get_value_display_string(
+	const synfig::ValueBase& data,
+	const synfig::ParamDesc& param_desc,
+	const synfig::ParamDesc& child_param_desc,
+	const synfig::Canvas::Handle& canvas)
+{
+	const Type& type(data.get_type());
+
+	// Types rendered as widgets (not text) and the canvas-less fallback
+	// keep matching against the raw value string.
+	if (type == type_color
+	 || type == type_bool
+	 || type == type_nil
+	 || type == type_gradient
+	 || !canvas)
+		return static_cast<Glib::ustring>(data.get_string());
+
+	if (type == type_real)
+	{
+		if (param_desc.get_is_distance() || child_param_desc.get_is_distance())
+		{
+			Distance x(data.get(Real()), Distance::SYSTEM_UNITS);
+			x.convert(App::distance_system, canvas->rend_desc());
+			return x.get_string(real_num_decimals);
+		}
+		return float_presentation(data.get(Real()));
+	}
+	if (type == type_time)
+		return data.get(Time()).get_string(canvas->rend_desc().get_frame_rate(),
+										   App::get_time_format());
+	if (type == type_angle)
+		return float_presentation(Angle::deg(data.get(Angle())).get(), angle_num_decimals) + "°";
+	if (type == type_integer)
+	{
+		const String param_hint(param_desc.get_hint());
+		const String child_param_hint(child_param_desc.get_hint());
+		if (param_hint != "enum" && child_param_hint != "enum")
+			return strprintf("%i", data.get(int()));
+
+		Glib::ustring text(strprintf("(%i)", data.get(int())));
+
+		const std::list<synfig::ParamDesc::EnumData>& enum_list =
+			param_hint == "enum" ? param_desc.get_enum_list() : child_param_desc.get_enum_list();
+		for (const auto& entry : enum_list)
+		{
+			if (entry.value == data.get(int()))
+			{
+				// don't show the keyboard shortcut underscores
+				String local_name(entry.local_name);
+				const String::size_type pos = local_name.find_first_of('_');
+				if (pos != String::npos)
+					local_name = local_name.substr(0, pos) + local_name.substr(pos + 1);
+				return local_name;
+			}
+		}
+		return text;
+	}
+	if (type == type_vector)
+	{
+		const Vector vector(data.get(Vector()));
+		if (param_desc.get_is_distance() || child_param_desc.get_is_distance())
+		{
+			Distance x(vector[0], Distance::SYSTEM_UNITS), y(vector[1], Distance::SYSTEM_UNITS);
+			x.convert(App::distance_system, canvas->rend_desc());
+			y.convert(App::distance_system, canvas->rend_desc());
+			return strprintf("%s,%s",
+				x.get_string(real_num_decimals).c_str(),
+				y.get_string(real_num_decimals).c_str());
+		}
+		return float_presentation(vector[0]) + "," + float_presentation(vector[1]);
+	}
+	if (type == type_transformation)
+	{
+		const Transformation& transformation(data.get(Transformation()));
+		const Vector& offset(transformation.offset);
+		const Angle::deg angle(transformation.angle);
+		const Vector& scale(transformation.scale);
+
+		Distance x(offset[0], Distance::SYSTEM_UNITS), y(offset[1], Distance::SYSTEM_UNITS);
+		x.convert(App::distance_system, canvas->rend_desc());
+		y.convert(App::distance_system, canvas->rend_desc());
+
+		return strprintf("%s,%s %s° %s,%s",
+			x.get_string(real_num_decimals).c_str(),
+			y.get_string(real_num_decimals).c_str(),
+			float_presentation(angle.get(), angle_num_decimals).c_str(),
+			synfig::float_presentation(scale[0], real_num_decimals).c_str(),
+			synfig::float_presentation(scale[1], real_num_decimals).c_str());
+	}
+	if (type == type_string)
+	{
+		if (!data.get(synfig::String()).empty())
+			return static_cast<Glib::ustring>(data.get(synfig::String()));
+		return Glib::ustring("<empty>");
+	}
+	if (type == type_canvas)
+	{
+		const Canvas::Handle canvas_handle(data.get(Canvas::Handle()));
+		if (canvas_handle)
+		{
+			if (canvas_handle->is_inline())
+				return _("<Group>");
+			return canvas_handle->get_id();
+		}
+		return _("<No Image Selected>");
+	}
+	if (type == type_bone_object
+	 || type == type_segment
+	 || type == type_list
+	 || type == type_bline_point
+	 || type == type_width_point
+	 || type == type_dash_item)
+		return type.description.local_name;
+	if (type == type_bone_valuenode)
+	{
+		ValueNode_Bone::Handle bone_node(data.get(ValueNode_Bone::Handle()));
+		if (bone_node->is_root())
+			return _("No Parent");
+		String name((*(bone_node->get_link("name")))(canvas->get_time()).get(String()));
+		if (name.empty())
+			name = bone_node->get_guid().get_string();
+		return name;
+	}
+	return static_cast<Glib::ustring>(type.description.local_name);
+}
+
 void
 CellRenderer_ValueBase::render_vfunc(
 	const    ::Cairo::RefPtr< ::Cairo::Context>& cr,
@@ -346,115 +474,6 @@ CellRenderer_ValueBase::render_vfunc(
 
 	Type &type(data.get_type());
 
-	if (type == type_real)
-	{
-		if ( get_param_desc().get_is_distance()  || get_child_param_desc().get_is_distance())
-		{
-			Distance x( data.get(Real()), Distance::SYSTEM_UNITS);
-			x.convert( App::distance_system, get_canvas()->rend_desc() );
-			property_text() = x.get_string(real_num_decimals).c_str();
-		}
-		else
-			property_text() = float_presentation(data.get(Real()));
-	}
-	else
-	if (type == type_time)
-	{
-		property_text() =
-			data.get(Time()).get_string( get_canvas()->rend_desc().get_frame_rate(),
-				                                         App::get_time_format());
-	}
-	else
-	if (type == type_angle)
-		property_text() = float_presentation(Angle::deg( data.get(Angle()) ).get(), angle_num_decimals) + "°";
-	else
-	if (type == type_integer)
-	{
-		String param_hint, child_param_hint;
-		param_hint       =       get_param_desc().get_hint();
-		child_param_hint = get_child_param_desc().get_hint();
-		if ( param_hint != "enum" && child_param_hint != "enum" )
-		{
-			property_text() = strprintf("%i", data.get(int()));
-		}
-		else
-		{
-			property_text() = strprintf("(%i)",data.get(int()));
-
-			std::list<synfig::ParamDesc::EnumData> enum_list;
-			if (param_hint == "enum")
-				enum_list = ((synfig::ParamDesc) property_param_desc_).get_enum_list();
-			else if (child_param_hint == "enum")
-				enum_list = ((synfig::ParamDesc) property_child_param_desc_).get_enum_list();
-
-			std::list<synfig::ParamDesc::EnumData>::iterator iter;
-			for (iter = enum_list.begin(); iter != enum_list.end(); ++iter) {
-				if (iter->value == data.get(int()))
-				{
-					// don't show the key_board s_hortcut under_scores
-					String local_name = iter->local_name;
-					String::size_type pos = local_name.find_first_of('_');
-					if (pos != String::npos)
-						property_text() = local_name.substr(0, pos) + local_name.substr(pos+1);
-					else
-						property_text() = local_name;
-					break;
-				}
-			}
-		}
-	}
-	else
-	if (type == type_vector)
-	{
-		Vector vector = data.get(Vector());
-		if (get_param_desc().get_is_distance() || get_child_param_desc().get_is_distance()) {
-			Distance x( vector[0], Distance::SYSTEM_UNITS ), y( vector[1], Distance::SYSTEM_UNITS );
-			x.convert( App::distance_system, get_canvas()->rend_desc() );
-			y.convert( App::distance_system, get_canvas()->rend_desc() );
-			property_text() = strprintf("%s,%s", x.get_string(real_num_decimals).c_str(), y.get_string(real_num_decimals).c_str());
-		} else
-			property_text() = float_presentation(vector[0]) + "," + float_presentation(vector[1]);
-	}
-	else
-	if (type == type_transformation)
-	{
-		const Transformation &transformation = data.get(Transformation());
-		const Vector         &offset         = transformation.offset;
-		const Angle::deg     angle            (transformation.angle);
-		const Vector         &scale          = transformation.scale;
-
-		Distance x( offset[0], Distance::SYSTEM_UNITS ), y( offset[1], Distance::SYSTEM_UNITS );
-		x.convert( App::distance_system, get_canvas()->rend_desc() );
-		y.convert( App::distance_system, get_canvas()->rend_desc() );
-
-		property_text() = strprintf("%s,%s %s° %s,%s",
-			x.get_string(real_num_decimals).c_str(), y.get_string(real_num_decimals).c_str(),
-			float_presentation(angle.get(), angle_num_decimals).c_str(),
-			synfig::float_presentation(scale[0], real_num_decimals).c_str(), synfig::float_presentation(scale[1], real_num_decimals).c_str()
-		);
-	}
-	else
-	if (type == type_string)
-	{
-		if ( !data.get(synfig::String()).empty() )
-			property_text() = static_cast<Glib::ustring>( data.get(synfig::String()) );
-		else
-			property_text() = Glib::ustring("<empty>");
-	}
-	else
-	if (type == type_canvas)
-	{
-		if ( data.get(Canvas::Handle()) )
-		{
-			if (data.get( Canvas::Handle())->is_inline() )
-				property_text() = _("<Group>");
-			else
-				property_text() = data.get(Canvas::Handle())->get_id();
-		}
-		else
-			property_text() = _("<No Image Selected>");
-	}
-	else
 	if (type == type_color)
 	{
 		render_color_to_window(cr, cell_area, data.get(Color()));
@@ -510,35 +529,7 @@ CellRenderer_ValueBase::render_vfunc(
 		render_gradient_to_window(cr, cell_area, data.get(Gradient()));
 		return;
 	}
-	else
-	if (type == type_bone_object
-	 || type == type_segment
-	 || type == type_list
-	 || type == type_bline_point
-	 || type == type_width_point
-	 || type == type_dash_item)
-	{
-		property_text() = data.get_type().description.local_name;
-	}
-	else
-	if (type == type_bone_valuenode)
-	{
-		ValueNode_Bone::Handle bone_node(data.get(ValueNode_Bone::Handle()));
-		String name(_("No Parent"));
-
-		if (!bone_node->is_root())
-		{
-			name = (*(bone_node->get_link("name")))(get_canvas()->get_time()).get(String());
-			if (name.empty())
-				name = bone_node->get_guid().get_string();
-		}
-
-		property_text() = name;
-	}
-	else
-	{
-		property_text() = static_cast<Glib::ustring>(type.description.local_name);
-	}
+	property_text() = get_value_display_string(data, get_param_desc(), get_child_param_desc(), get_canvas());
 
 	CellRendererText::render_vfunc(cr, widget, background_area, cell_area, flags);
 }

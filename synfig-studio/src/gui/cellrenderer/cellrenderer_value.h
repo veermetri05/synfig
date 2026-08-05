@@ -95,6 +95,21 @@ public:
 	CellRenderer_ValueBase();
 	~CellRenderer_ValueBase();
 
+	//! \brief Convert a value to the string shown in the parameters tree.
+	//! Mirrors the text rendering of render_vfunc() so that the parameters
+	//! filter (LayerParamTreeStore) and the displayed text always agree
+	//! (e.g. enum parameters like Blend Method display "Hue", not "16").
+	//! \param data the value to convert
+	//! \param param_desc parameter description; may be empty
+	//! \param child_param_desc child parameter description; may be empty
+	//! \param canvas canvas used for unit/time formatting; if null, the
+	//!        raw ValueBase string is returned instead
+	static Glib::ustring get_value_display_string(
+		const synfig::ValueBase& data,
+		const synfig::ParamDesc& param_desc,
+		const synfig::ParamDesc& child_param_desc,
+		const synfig::Canvas::Handle& canvas);
+
 	void set_canvas_interface(const etl::loose_handle<synfigapp::CanvasInterface>& x);
 
 protected:

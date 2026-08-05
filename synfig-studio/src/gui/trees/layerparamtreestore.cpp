@@ -41,6 +41,7 @@
 #include <map>
 
 #include <gui/app.h>
+#include <gui/cellrenderer/cellrenderer_value.h>
 #include <gui/trees/layertree.h>
 #include <gui/localization.h>
 
@@ -757,8 +758,14 @@ LayerParamTreeStore::row_matches_filter(const Gtk::TreeModel::iterator& iter) co
 		Glib::ustring value_string;
 		try
 		{
-			const synfig::ValueBase value_base = (*iter).get_value(model.value);
-			value_string = value_base.get_string();
+			// Match against the string the value column actually displays
+			// (e.g. "Hue" for the Blend Method enum), not the raw
+			// ValueBase conversion (e.g. "16").
+			value_string = CellRenderer_ValueBase::get_value_display_string(
+				(*iter).get_value(model.value),
+				(*iter)[model.param_desc],
+				(*iter)[model.child_param_desc],
+				get_canvas_interface() ? get_canvas_interface()->get_canvas() : Canvas::Handle());
 		}
 		catch(const std::exception&)
 		{
