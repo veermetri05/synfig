@@ -450,6 +450,11 @@ LayerParamTreeStore::rebuild()
 	}
 
 	prune_rows();
+
+	//! Notify dependent views (e.g. the Parameters dock filter type list)
+	//! that the set of rows has changed. Do NOT emit from refresh():
+	//! signal_changed() is connected to queue_refresh(), which would loop.
+	changed();
 }
 
 void
