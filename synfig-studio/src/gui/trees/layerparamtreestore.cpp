@@ -318,7 +318,10 @@ LayerParamTreeStore::rebuild()
 	layer_list=layer_tree->get_selected_layers();
 
 	if(layer_list.size()<=0)
+	{
+		distinct_types_.clear();
 		return;
+	}
 
 	// Get rid of all the connections,
 	// and clear the connection map.
@@ -449,6 +452,7 @@ LayerParamTreeStore::rebuild()
 		}
 	}
 
+	collect_distinct_types();
 	prune_rows();
 
 	//! Notify dependent views (e.g. the Parameters dock filter type list)
@@ -498,13 +502,14 @@ LayerParamTreeStore::refresh()
 
 	Gtk::TreeModel::Children::iterator iter;
 
-	if(!children_.empty())
+		if(!children_.empty())
 		for(iter = children_.begin(); iter && iter != children_.end(); ++iter)
 		{
 			Gtk::TreeRow row=*iter;
 			refresh_row(row);
 		}
 
+	collect_distinct_types();
 	prune_rows();
 }
 
@@ -678,7 +683,13 @@ LayerParamTreeStore::is_filter_active() const
 void
 LayerParamTreeStore::get_distinct_types(std::vector<std::pair<synfig::String, const synfig::Type*>>& types)
 {
-	types.clear();
+	types = distinct_types_;
+}
+
+void
+LayerParamTreeStore::collect_distinct_types()
+{
+	distinct_types_.clear();
 	std::map<synfig::String, const synfig::Type*> type_map;
 	foreach_iter([this, &type_map](const Gtk::TreeModel::iterator& iter) -> bool {
 		const synfigapp::ValueDesc value_desc((*iter)[model.value_desc]);
@@ -686,7 +697,7 @@ LayerParamTreeStore::get_distinct_types(std::vector<std::pair<synfig::String, co
 			type_map[value_desc.get_value_type().description.local_name] = &value_desc.get_value_type();
 		return false;
 	});
-	types.assign(type_map.begin(), type_map.end());
+	distinct_types_.assign(type_map.begin(), type_map.end());
 }
 
 bool

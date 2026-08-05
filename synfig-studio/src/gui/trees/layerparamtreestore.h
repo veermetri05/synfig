@@ -161,6 +161,14 @@ public:
 
 	void refresh_row(Gtk::TreeModel::Row &row);
 
+	//! Walk the (unpruned) tree and refresh the distinct type cache
+	void collect_distinct_types();
+
+	//! Distinct parameter value types present in the tree, collected
+	//! before pruning so a type filter never shrinks the type list.
+	//! Pairs of (local type name, type), sorted by name.
+	std::vector<std::pair<synfig::String, const synfig::Type*>> distinct_types_;
+
 	//! \brief Search for a value descriptor on the parameter tree.
 	//! On success get the node reference of the synfigapp::ValueDesc on the tree
 	//! \Param[in]  value_desc The value to search for
