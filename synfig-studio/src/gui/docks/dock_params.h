@@ -73,6 +73,12 @@ class Dock_Params : public Dock_CanvasSpecific
 	//! Connection to the current store's signal_changed(), used to refresh the type list
 	sigc::connection filter_store_connection_;
 
+	//! Connection to filter_type_combo_'s signal_changed(), blocked while repopulating
+	sigc::connection filter_type_combo_changed_connection_;
+
+	//! One-shot timer that applies the filter once the type popup closes
+	sigc::connection popup_watch_connection_;
+
 protected:
 	virtual void init_canvas_view_vfunc(etl::loose_handle<CanvasView> canvas_view);
 	virtual void changed_canvas_view_vfunc(etl::loose_handle<CanvasView> canvas_view);
@@ -84,6 +90,10 @@ protected:
 private:
 	void create_filter_bar();
 	void on_param_filter_changed();
+	//! Polls while the type popup is open; applies the filter once it closes
+	bool on_combo_popup_watch();
+	//! Push the current filter widget state into the store
+	void apply_param_filter();
 	void on_filter_clear_clicked();
 	void refresh_filter_type_combo();
 	LayerParamTreeStore* get_param_tree_store(etl::loose_handle<CanvasView> canvas_view) const;

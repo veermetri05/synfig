@@ -37,6 +37,7 @@
 #include <cassert>
 
 #include <gtkmm/icontheme.h>
+#include <glibmm/main.h>
 
 #include <gui/canvasview.h>
 #include <gui/localization.h>
@@ -160,7 +161,7 @@ Dock_Params::create_filter_bar()
 	filter_type_combo_.append(_("All types"));
 	filter_types_.push_back(nullptr);
 	filter_type_combo_.set_active(0);
-	filter_type_combo_.signal_changed().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
+	filter_type_combo_changed_connection_ = filter_type_combo_.signal_changed().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
 
 	filter_animated_check_.set_label(_("Animated"));
 	filter_animated_check_.signal_toggled().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
@@ -180,6 +181,35 @@ Dock_Params::create_filter_bar()
 
 void
 Dock_Params::on_param_filter_changed()
+{
+	// GTK3 emits changed() for every item hovered while the type popup is
+	// open (hover-selection). Applying each transient state would rebuild
+	// the tree (and the popup) while hovering - flicker. Defer until the
+	// popup closes.
+	if (filter_type_combo_.property_popup_shown().get_value())
+	{
+		if (!popup_watch_connection_.connected())
+			popup_watch_connection_ = Glib::signal_timeout().connect(
+				sigc::mem_fun(*this, &Dock_Params::on_combo_popup_watch), 25);
+		return;
+	}
+	apply_param_filter();
+}
+
+bool
+Dock_Params::on_combo_popup_watch()
+{
+	// Popup still open: keep watching (the timer is stopped when it closes)
+	if (filter_type_combo_.property_popup_shown().get_value())
+		return true;
+
+	popup_watch_connection_.disconnect();
+	apply_param_filter(); // popup closed: apply the final selection
+	return false;
+}
+
+void
+Dock_Params::apply_param_filter()
 {
 	CanvasView::LooseHandle canvas_view(get_canvas_view());
 	LayerParamTreeStore* store = get_param_tree_store(canvas_view);
@@ -216,15 +246,33 @@ Dock_Params::refresh_filter_type_combo()
 	if (!store)
 		return;
 
+	std::vector<std::pair<synfig::String, const synfig::Type*>> types;
+	store->get_distinct_types(types);
+
+	// If the type list is unchanged, don't touch the combo: repopulating
+	// while the popup is open would rebuild it and flicker.
+	if (types.size() + 1 == filter_types_.size()) {
+		bool same = true;
+		for (size_t i = 1; i < filter_types_.size(); ++i) {
+			if (filter_types_[i]->description.local_name != types[i - 1].first) {
+				same = false;
+				break;
+			}
+		}
+		if (same)
+			return;
+	}
+
 	// Remember the currently selected type (by identity, not by row)
 	const synfig::Type* previous_type(nullptr);
 	const int previous_active = filter_type_combo_.get_active_row_number();
 	if (previous_active > 0 && previous_active < (int)filter_types_.size())
 		previous_type = filter_types_[previous_active];
 
-	std::vector<std::pair<synfig::String, const synfig::Type*>> types;
-	store->get_distinct_types(types);
-
+	// Repopulate without emitting signal_changed: remove_all() drops the
+	// active row to -1 mid-way, which would otherwise be applied as
+	// "clear the type filter" by on_param_filter_changed().
+	filter_type_combo_changed_connection_.block();
 	filter_type_combo_.remove_all();
 	filter_types_.clear();
 	filter_type_combo_.append(_("All types"));
@@ -242,6 +290,10 @@ Dock_Params::refresh_filter_type_combo()
 		}
 	}
 	filter_type_combo_.set_active(new_active);
+	filter_type_combo_changed_connection_.unblock();
+
+	// Apply the (restored) selection once
+	on_param_filter_changed();
 }
 
 LayerParamTreeStore*
