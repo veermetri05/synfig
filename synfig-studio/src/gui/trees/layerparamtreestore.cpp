@@ -314,6 +314,15 @@ LayerParamTreeStore::rebuild()
 {
 	// Profiler profiler("LayerParamTreeStore::rebuild()");
 	if(queued)queued=0;
+
+	// Remember the current sort (column + order) before clear() wipes it:
+	// GtkTreeStore resets its sort state to unsorted on clear(), so a
+	// filtered/toggled rebuild would otherwise come back in insertion
+	// order while the header keeps a stale sort indicator.
+	int sort_column_id = -1;
+	Gtk::SortType sort_order = Gtk::SORT_ASCENDING;
+	const bool sort_active = get_sort_column_id(sort_column_id, sort_order);
+
 	clear();
 	layer_list=layer_tree->get_selected_layers();
 
@@ -454,6 +463,16 @@ LayerParamTreeStore::rebuild()
 
 	collect_distinct_types();
 	prune_rows();
+
+	// Re-apply the sort captured before clear(). GtkTreeStore ignores
+	// set_sort_column() when the column+order already match, so set the
+	// reverse order first to force a re-sort of the freshly inserted rows.
+	if (sort_active && sort_column_id != -1)
+	{
+		const Gtk::SortType reverse_order = sort_order == Gtk::SORT_DESCENDING ? Gtk::SORT_ASCENDING : Gtk::SORT_DESCENDING;
+		set_sort_column(sort_column_id, reverse_order);
+		set_sort_column(sort_column_id, sort_order);
+	}
 
 	//! Notify dependent views (e.g. the Parameters dock filter type list)
 	//! that the set of rows has changed. Do NOT emit from refresh():
