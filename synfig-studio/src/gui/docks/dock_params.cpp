@@ -37,7 +37,6 @@
 #include <cassert>
 
 #include <gtkmm/icontheme.h>
-#include <glibmm/main.h>
 
 #include <gui/canvasview.h>
 #include <gui/localization.h>
@@ -162,6 +161,13 @@ Dock_Params::create_filter_bar()
 	filter_types_.push_back(nullptr);
 	filter_type_combo_.set_active(0);
 	filter_type_combo_changed_connection_ = filter_type_combo_.signal_changed().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
+	// GTK emits changed() for every item hovered in the open popup
+	// (hover-selection); those transients are guarded in
+	// on_param_filter_changed(). gtkmm3 has no popdown signal, but the
+	// notify::popup-shown property notification fires exactly when the
+	// popup opens/closes - apply the final selection on close.
+	popup_state_connection_ = filter_type_combo_.property_popup_shown().signal_changed().connect(
+		sigc::mem_fun(*this, &Dock_Params::on_combo_popup_state_changed));
 
 	filter_animated_check_.set_label(_("Animated"));
 	filter_animated_check_.signal_toggled().connect(sigc::mem_fun(*this, &Dock_Params::on_param_filter_changed));
@@ -184,28 +190,22 @@ Dock_Params::on_param_filter_changed()
 {
 	// GTK3 emits changed() for every item hovered while the type popup is
 	// open (hover-selection). Applying each transient state would rebuild
-	// the tree (and the popup) while hovering - flicker. Defer until the
-	// popup closes.
+	// the tree (and the popup) while hovering - flicker. The popup close
+	// notification applies the final selection instead.
 	if (filter_type_combo_.property_popup_shown().get_value())
-	{
-		if (!popup_watch_connection_.connected())
-			popup_watch_connection_ = Glib::signal_timeout().connect(
-				sigc::mem_fun(*this, &Dock_Params::on_combo_popup_watch), 25);
 		return;
-	}
 	apply_param_filter();
 }
 
-bool
-Dock_Params::on_combo_popup_watch()
+void
+Dock_Params::on_combo_popup_state_changed()
 {
-	// Popup still open: keep watching (the timer is stopped when it closes)
+	// Popup opened: nothing to apply yet
 	if (filter_type_combo_.property_popup_shown().get_value())
-		return true;
+		return;
 
-	popup_watch_connection_.disconnect();
-	apply_param_filter(); // popup closed: apply the final selection
-	return false;
+	// Popup closed: apply the final selection
+	apply_param_filter();
 }
 
 void

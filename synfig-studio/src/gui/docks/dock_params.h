@@ -76,8 +76,8 @@ class Dock_Params : public Dock_CanvasSpecific
 	//! Connection to filter_type_combo_'s signal_changed(), blocked while repopulating
 	sigc::connection filter_type_combo_changed_connection_;
 
-	//! One-shot timer that applies the filter once the type popup closes
-	sigc::connection popup_watch_connection_;
+	//! Connection to the popup-shown property notification (notify::popup-shown)
+	sigc::connection popup_state_connection_;
 
 protected:
 	virtual void init_canvas_view_vfunc(etl::loose_handle<CanvasView> canvas_view);
@@ -90,8 +90,8 @@ protected:
 private:
 	void create_filter_bar();
 	void on_param_filter_changed();
-	//! Polls while the type popup is open; applies the filter once it closes
-	bool on_combo_popup_watch();
+	//! Applies the filter when the type popup closes (notify::popup-shown)
+	void on_combo_popup_state_changed();
 	//! Push the current filter widget state into the store
 	void apply_param_filter();
 	void on_filter_clear_clicked();
