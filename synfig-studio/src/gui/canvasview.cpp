@@ -1433,7 +1433,9 @@ CanvasView::init_menus()
 	action_group->get_action("dialog-flipbook")->set_sensitive(false);
 
 	update_plugin_menu();
-	App::plugin_manager.signal_list_changed().connect(sigc::mem_fun(*this, &CanvasView::update_plugin_menu));
+	App::plugin_manager.signal_list_changed().connect(
+		sigc::track_obj(sigc::mem_fun(*this, &CanvasView::update_plugin_menu), this)
+	);
 	// Low-Res Quality Menu
 	for (int i : get_pixel_sizes()) {
 		Glib::RefPtr<Gtk::RadioAction> action = Gtk::RadioAction::create(

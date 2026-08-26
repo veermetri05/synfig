@@ -234,7 +234,7 @@ Dialog_PluginManager::save_plugin_config(const std::string& plugin_id, Gtk::Widg
     std::string user_config_file = plugin.pluginDir + "/user_config.json";
     
     // Get configuration data from widgets
-    auto config_data = PluginManager::parse_dialog(*config_widget);
+    auto config_data = parse_dialog(*config_widget);
     
     // Convert to JSON format
     std::string json_data;
@@ -650,7 +650,7 @@ Dialog_PluginManager::on_install_plugin_button_clicked()
     }
     if (plugin_metadata_file.empty() || !zip_fs->is_file(plugin_metadata_file)) {
         synfig::error("Failed to find plugin.xml in zip file: " + zip_filename);
-        message_dialog.set_message("Failed to find plugin.xml in zip file: " + zip_filename);
+        message_dialog.set_message(_("Failed to find plugin.xml in zip file: ") + zip_filename);
         message_dialog.run();
         message_dialog.close();
         plugin_file_dialog.close();
@@ -681,11 +681,14 @@ Dialog_PluginManager::on_install_plugin_button_clicked()
     }
     if (native_fs->directory_create(output_path)) {
         if (plugin_metadata_file.find("/") == std::string::npos) {
+            // plugin.xml is at the zip root: extract all files
             for(const auto& file : files) {
                 zip_fs->copy_recursive(zip_fs,  file, native_fs, output_path + file);
             }
         } else {
-            zip_fs->copy_recursive(zip_fs, files[0], native_fs, output_path);
+            // plugin.xml is in a subfolder: extract only that folder's contents
+            const std::string subfolder = plugin_metadata_file.substr(0, plugin_metadata_file.find("/"));
+            zip_fs->copy_recursive(zip_fs, subfolder, native_fs, output_path);
         }
     }
     App::plugin_manager.load_plugin(output_path + "plugin.xml", output_path, true);

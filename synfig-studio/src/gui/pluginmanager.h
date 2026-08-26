@@ -168,7 +168,6 @@ private:
 
 public:
 	void init_menu();
-    static std::map<std::string, std::string> parse_dialog(const Gtk::Widget &dialog_contents);
     void load_dir(const std::string &pluginsprefix);
     void load_plugin( const std::string &file, const std::string &plugindir, bool notify = false);
 	void refresh_menu();
@@ -190,6 +189,8 @@ public:
 
 }; // END class PluginManager
 
+//! Parses the values of the widgets inside a plugin dialog/configuration widget
+std::map<std::string, std::string> parse_dialog(const Gtk::Widget& dialog_contents);
 
 } // END namespace synfigapp
 

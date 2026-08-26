@@ -315,15 +315,15 @@ fetch_data_in_widget(const Gtk::Widget* w, std::map<std::string, std::string>& d
 			data[w->get_name()] = static_cast<const Gtk::Entry*>(w)->get_text();
 		}
 	}
-	if (GTK_IS_CONTAINER(w->gobj()) && (w->get_name().find("gtkmm__") == 0)) {
-		// synfig::info("Fetching children of " + w->get_name() + ((w->get_name().find("gtkmm__") == 0) ? "0" : "1"));
+	// Recurse into every container to reach the named input widgets inside it.
+	if (GTK_IS_CONTAINER(w->gobj())) {
 		for (const Gtk::Widget* c : static_cast<const Gtk::Container*>(w)->get_children())
 			fetch_data_in_widget(c, data);
 	}
 };
 
 std::map<std::string, std::string>
-studio::PluginManager::parse_dialog(const Gtk::Widget& dialog_contents)
+studio::parse_dialog(const Gtk::Widget& dialog_contents)
 {
 	std::map<std::string, std::string> data;
 	fetch_data_in_widget(&dialog_contents, data);
@@ -673,7 +673,7 @@ bool studio::PluginManager::check_and_run_dialog(const PluginScript& script, std
 					int result = dialog.run();
 					if (result != Gtk::RESPONSE_ACCEPT)
 						return false;
-					auto dialog_data = PluginManager::parse_dialog(*contents);
+					auto dialog_data = parse_dialog(*contents);
 //					delete dialog;
 					for (const auto& d : dialog_data) {
 						if (!dialog_args.empty())
