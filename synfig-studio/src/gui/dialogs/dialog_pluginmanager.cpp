@@ -230,9 +230,6 @@ Dialog_PluginManager::save_plugin_config(const std::string& plugin_id, Gtk::Widg
     Plugin plugin = App::plugin_manager.get_plugin(plugin_id);
     if (!plugin.is_valid()) return;
 
-    // Construct file paths
-    std::string user_config_file = plugin.pluginDir + "/user_config.json";
-    
     // Get configuration data from widgets
     auto config_data = parse_dialog(*config_widget);
     
@@ -250,6 +247,7 @@ Dialog_PluginManager::save_plugin_config(const std::string& plugin_id, Gtk::Widg
     // Save to user_config.json using FileSystemNative
     try {
         auto file_system = FileSystemNative::instance();
+        std::string user_config_file = plugin.pluginDir + "/user_config.json";
         auto stream = file_system->get_write_stream(user_config_file);
         if (!stream) {
             throw std::runtime_error(_("Could not open file for writing"));
@@ -280,11 +278,10 @@ Dialog_PluginManager::reset_plugin_config(const std::string& plugin_id, Gtk::Wid
         Plugin plugin = App::plugin_manager.get_plugin(plugin_id);
         if (!plugin.is_valid()) return;
 
-        std::string default_config_file = plugin.pluginDir + "/default_config.json";
-        std::string user_config_file = plugin.pluginDir + "/user_config.json";
-
         try {
             auto file_system = FileSystemNative::instance();
+            std::string default_config_file = plugin.pluginDir + "/default_config.json";
+            std::string user_config_file = plugin.pluginDir + "/user_config.json";
             
             // Check if default config exists
             if (!file_system->is_file(default_config_file)) {
@@ -388,8 +385,6 @@ Dialog_PluginManager::build_notebook()
         plugin_label->set_margin_right(20);
 
         std::string config_ui_path = plugin.pluginDir + "/configuration.ui";
-        std::string default_config_file = plugin.pluginDir + "/default_config.json";
-        std::string user_config_file = plugin.pluginDir + "/user_config.json";
 
         if (!file_system->is_file(config_ui_path)) {
             // If configuration UI doesn't exist, show simple message that no configuration is available
@@ -403,6 +398,7 @@ Dialog_PluginManager::build_notebook()
             plugin_tab->pack_start(*info_label, Gtk::PACK_SHRINK);
         } else {
             // Configuration UI exists, check for default config
+            std::string default_config_file = plugin.pluginDir + "/default_config.json";
             if (!file_system->is_file(default_config_file)) {
                 // Show error if default config is missing
                 Gtk::Label* error_label = Gtk::manage(new Gtk::Label(
@@ -564,9 +560,8 @@ Dialog_PluginManager::build_listbox()
             }
         });
 
-        open_folder->signal_clicked().connect([plugin](){
-            plugin.launch_dir();
-        });
+        open_folder->signal_clicked().connect(
+            sigc::bind(sigc::mem_fun(*this, &Dialog_PluginManager::open_plugin_folder), plugin));
 
         plugin_option_box->pack_start(*restore_settings, Gtk::PACK_SHRINK, 10);
         plugin_option_box->pack_start(*open_folder, Gtk::PACK_SHRINK, 10);
@@ -657,8 +652,9 @@ Dialog_PluginManager::on_install_plugin_button_clicked()
         return;
     }
     plugin_name = extract_plugin_name(*zip_fs->get_read_stream(plugin_metadata_file));
-    output_path = ((path_to_user_plugins / plugin_name).add_suffix("/")).u8string();
-    if (native_fs->is_exists(output_path) && native_fs->is_directory(output_path)) {
+    std::string output_path_base = (path_to_user_plugins / plugin_name).u8string();
+    output_path = output_path_base + "/";
+    if (native_fs->is_directory(output_path_base) || native_fs->is_directory(output_path)) {
         confirmation_dialog.set_message(_("Plugin already exists. Do you want to overwrite it?"));
         int response = confirmation_dialog.run();
         if (response != Gtk::RESPONSE_OK) {
@@ -672,28 +668,52 @@ Dialog_PluginManager::on_install_plugin_button_clicked()
         }
         native_fs->remove_recursive(output_path);
         confirmation_dialog.close();
-    }
-    if (native_fs->is_file(output_path)) {
-        if (!native_fs->file_remove(output_path)) {
-            synfig::error("Failed to remove file: " + output_path);
+    } else if (native_fs->is_file(output_path_base)) {
+        confirmation_dialog.set_message(_("A file with the same name as the plugin already exists. Do you want to replace it?"));
+        int response = confirmation_dialog.run();
+        if (response != Gtk::RESPONSE_OK) {
+            confirmation_dialog.close();
+            plugin_file_dialog.close();
+            return;
+        }
+        confirmation_dialog.close();
+        if (!native_fs->file_remove(output_path_base)) {
+            synfig::error("Failed to remove file: " + output_path_base);
+            message_dialog.set_message(_("Failed to remove conflicting file: ") + output_path_base);
+            message_dialog.run();
+            message_dialog.close();
+            plugin_file_dialog.close();
             return;
         }
     }
-    if (native_fs->directory_create(output_path)) {
-        if (plugin_metadata_file.find("/") == std::string::npos) {
-            // plugin.xml is at the zip root: extract all files
-            for(const auto& file : files) {
-                zip_fs->copy_recursive(zip_fs,  file, native_fs, output_path + file);
-            }
-        } else {
-            // plugin.xml is in a subfolder: extract only that folder's contents
-            const std::string subfolder = plugin_metadata_file.substr(0, plugin_metadata_file.find("/"));
-            zip_fs->copy_recursive(zip_fs, subfolder, native_fs, output_path);
+    if (!native_fs->directory_create(output_path)) {
+        synfig::error("Failed to create plugin directory: " + output_path);
+        message_dialog.set_message(_("Failed to create plugin directory: ") + output_path);
+        message_dialog.run();
+        message_dialog.close();
+        plugin_file_dialog.close();
+        return;
+    }
+    if (plugin_metadata_file.find("/") == std::string::npos) {
+        // plugin.xml is at the zip root: extract all files
+        for(const auto& file : files) {
+            zip_fs->copy_recursive(zip_fs,  file, native_fs, output_path + file);
         }
+    } else {
+        // plugin.xml is in a subfolder: extract only that folder's contents
+        const std::string subfolder = plugin_metadata_file.substr(0, plugin_metadata_file.find("/"));
+        zip_fs->copy_recursive(zip_fs, subfolder, native_fs, output_path);
     }
     App::plugin_manager.load_plugin(output_path + "plugin.xml", output_path, true);
     zip_fs->close();
     Gtk::MessageDialog msg_dialog = Gtk::MessageDialog(plugin_file_dialog, _("Plugin installed successfully."), false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_CLOSE, true);
     msg_dialog.run();
     plugin_file_dialog.close();
+}
+
+void
+Dialog_PluginManager::open_plugin_folder(const studio::Plugin& plugin) const
+{
+    synfig::info(plugin.pluginDir);
+    synfig::OS::launch_file_async(plugin.pluginDir);
 }

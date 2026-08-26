@@ -67,6 +67,7 @@ private:
     void reset_plugin_config(const std::string &plugin_id, Gtk::Widget *config_widget);
     void on_install_plugin_button_clicked();
     void refresh();
+    void open_plugin_folder(const studio::Plugin& plugin) const;
 
 }; // END of class Dialog_PluginManager
 
